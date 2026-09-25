@@ -117,7 +117,7 @@ def main():
     logger.info("Step 3/3: Embedding and storing in ChromaDB ...")
     t2 = time.time()
 
-    embeddings = TrackedEmbeddings(model="nomic-ai/nomic-embed-text-v1.5")
+    embeddings = TrackedEmbeddings(model="BAAI/bge-small-en-v1.5")
     store = ChromaVectorStore(
         persist_dir=args.chroma_dir,
         collection_name=args.collection,

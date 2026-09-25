@@ -111,7 +111,7 @@ with st.sidebar:
         try:
             from vectorstore.chroma_store import ChromaVectorStore
             from vectorstore.embeddings import TrackedEmbeddings
-            emb = TrackedEmbeddings(model="nomic-ai/nomic-embed-text-v1.5")
+            emb = TrackedEmbeddings(model="BAAI/bge-small-en-v1.5")
             s = ChromaVectorStore(persist_dir=chroma_dir, collection_name=collection, embeddings=emb)
             st.session_state.kb_stats = s.collection_stats()
         except Exception as e:

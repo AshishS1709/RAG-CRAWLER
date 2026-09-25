@@ -46,7 +46,7 @@ class QueryUsage:
 
     @property
     def embedding_cost_usd(self) -> float:
-        # Nomic free tier — $0 for embeddings
+        # Local embedding model (BGE) — $0 for embeddings
         return 0.0
 
     @property

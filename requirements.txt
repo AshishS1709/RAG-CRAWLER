@@ -5,10 +5,10 @@ langchain-community>=0.3.0
 langchain-text-splitters>=0.3.0  # RecursiveCharacterTextSplitter (split from langchain core in 0.3.x)
 langgraph>=0.2.0
 
-# Local Embeddings (nomic-embed-text-v1 via HuggingFace — no API key needed)
-transformers>=4.40.0
+# Local Embeddings (BAAI/bge-small-en-v1.5 via sentence-transformers — $0, fully local)
+sentence-transformers>=3.0.0
 torch>=2.0.0
-sentence-transformers>=3.0.0  # optional but useful for device handling
+transformers>=4.40.0
 
 # Vector Store
 chromadb>=0.5.0

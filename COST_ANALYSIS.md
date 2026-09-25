@@ -12,7 +12,7 @@
 
 1. **Crawl** — `requests` fetches each page (no LLM involved, no API cost)
 2. **Extract & Chunk** — `trafilatura` + `RecursiveCharacterTextSplitter` (no LLM involved)
-3. **Embed** — `nomic-ai/nomic-embed-text-v1` runs **locally on your machine**
+3. **Embed** — `BAAI/bge-small-en-v1.5` runs **locally on your machine**
 
 | Metric | Source |
 |---|---|
@@ -24,8 +24,8 @@
 
 ### Why is ingestion free?
 
-The embedding model — `nomic-ai/nomic-embed-text-v1` — runs entirely via **HuggingFace
-Transformers** on local hardware (CPU, CUDA GPU, or Apple MPS). There is no API call,
+The embedding model — `BAAI/bge-small-en-v1.5` — runs entirely via **SentenceTransformers**
+on local hardware (CPU, CUDA GPU, or Apple MPS). There is no API call,
 no API key, and no per-token billing.
 
 For comparison, embedding the same corpus through the OpenAI Embeddings API

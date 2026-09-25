@@ -152,7 +152,8 @@ class WebCrawler:
         p = urlparse(url)
         if p.netloc != self.base_domain:
             return False
-        if not (p.path.startswith(self.base_path_prefix) or p.path.rstrip("/") == self.base_path_prefix.rstrip("/")):
+        path_norm = p.path if p.path.endswith("/") else p.path + "/"
+        if not (path_norm.startswith(self.base_path_prefix) or p.path == self.base_path_prefix.rstrip("/")):
             return False
         for pat in self.SKIP_PATTERNS:
             if pat in url:
@@ -164,8 +165,12 @@ class WebCrawler:
     def _extract_links(self, page_url: str, html: str) -> List[str]:
         soup = BeautifulSoup(html, "lxml")
         links = []
+        base = page_url
+        p = urlparse(base)
+        if not p.path.endswith("/") and not any(p.path.endswith(ext) for ext in [".html", ".htm"]):
+            base = base + "/"
         for tag in soup.find_all("a", href=True):
-            absolute = urljoin(page_url, tag["href"])
+            absolute = urljoin(base, tag["href"])
             normalised = self._normalise(absolute)
             if self._is_in_scope(normalised) and normalised not in self.visited:
                 links.append(normalised)
@@ -222,7 +227,8 @@ class WebCrawler:
 
             html = resp.text
             title = self._extract_title(html)
-            links = self._extract_links(url, html) if depth < self.max_depth else []
+            resp_url = resp.url if resp.url else url
+            links = self._extract_links(resp_url, html) if depth < self.max_depth else []
 
             page = CrawledPage(
                 url=url,
@@ -255,3 +261,17 @@ class WebCrawler:
 
         logger.info("Crawl complete. %d pages fetched.", len(self.pages))
         return self.pages
+
+
+if __name__ == "__main__":
+    import sys
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    test_url = sys.argv[1] if len(sys.argv) > 1 else "https://docs.python.org/3/"
+    max_p = int(sys.argv[2]) if len(sys.argv) > 2 else 5
+    print(f"\n--- Crawl Smoke Test: {test_url} (max {max_p} pages) ---")
+    c = WebCrawler(start_url=test_url, max_pages=max_p, max_depth=2, crawl_delay=0.2)
+    res = c.crawl(show_progress=True)
+    print(f"\n--- Result: {len(res)} pages crawled ---")
+    for idx, page in enumerate(res, 1):
+        print(f"  [{idx}] depth={page.depth} links={len(page.links_found)} | {page.url} ({page.title})")
+

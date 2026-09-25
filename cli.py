@@ -84,7 +84,7 @@ def build_agent():
     from agent.token_tracker import TokenTracker
 
     print(Fore.CYAN + "Loading vector store...", end=" ", flush=True)
-    embeddings = TrackedEmbeddings(model="nomic-ai/nomic-embed-text-v1.5")
+    embeddings = TrackedEmbeddings(model="BAAI/bge-small-en-v1.5")
     store = ChromaVectorStore(
         persist_dir=chroma_dir,
         collection_name=collection,

@@ -2,7 +2,7 @@
 
 A production-quality **Retrieval-Augmented Generation (RAG) agent** that crawls the official Python 3 documentation, builds a searchable local vector knowledge base, and answers natural-language questions grounded exclusively in that content.
 
-Built for the AI Engineer assessment — using **LangChain**, **LangGraph**, **ChromaDB**, **Groq/Llama**, and **local Nomic embeddings** (no OpenAI API required for embeddings).
+Built for the AI Engineer assessment — using **LangChain**, **LangGraph**, **ChromaDB**, **Groq/Llama**, and **local BGE embeddings** (no OpenAI API required for embeddings).
 
 ---
 
@@ -13,7 +13,7 @@ flowchart TD
     subgraph INGESTION ["🔄 Ingestion Pipeline (one-time setup)"]
         A["🌐 docs.python.org/3/"] --> B["BFS Crawler\n(requests + BeautifulSoup)\nrobots.txt-aware"]
         B --> C["Content Processor\n(trafilatura extraction\n+ BS4 fallback\n+ RecursiveCharacterTextSplitter\n800 chars / 150 overlap)"]
-        C --> D["nomic-ai/nomic-embed-text-v1\n(local HuggingFace — $0 cost\nCPU / CUDA / MPS auto-detect)"]
+        C --> D["BAAI/bge-small-en-v1.5\n(local SentenceTransformers — $0 cost\nCPU / CUDA / MPS auto-detect)"]
         D --> E[("ChromaDB\n(persistent local\nvector store)")]
     end
 
@@ -44,8 +44,8 @@ flowchart TD
 |---|---|---|
 | **Crawling** | `requests` + `BeautifulSoup` | Lightweight, controllable, robots.txt-aware; avoids JS rendering overhead for docs sites |
 | **Content Extraction** | `trafilatura` (BS4 fallback) | Best-in-class article extraction; strips nav/footer/sidebar noise that pollutes embeddings |
-| **Chunking** | `RecursiveCharacterTextSplitter` (800 chars / 150 overlap) | Semantic-aware splitting; overlap preserves context at boundaries; 800 chars ≈ 200 tokens — fits comfortably in Nomic's 512-token default max |
-| **Embeddings** | `nomic-ai/nomic-embed-text-v1` (local HuggingFace) | **$0 cost** — no API key needed; 768-dim dense vectors; state-of-the-art retrieval quality comparable to OpenAI `text-embedding-3-small`; runs on CPU/GPU/MPS automatically |
+| **Chunking** | `RecursiveCharacterTextSplitter` (800 chars / 150 overlap) | Semantic-aware splitting; overlap preserves context at boundaries; 800 chars ≈ 200 tokens — fits comfortably in BGE's 512-token default max |
+| **Embeddings** | `BAAI/bge-small-en-v1.5` (local SentenceTransformers) | **$0 cost** — no API key needed; 384-dim dense vectors; top-tier retrieval quality on MTEB; runs fast on CPU/GPU/MPS |
 | **Vector DB** | ChromaDB (local persistent) | Zero infrastructure; inspectable on disk; can swap to Pinecone/Weaviate for production scale without changing the interface |
 | **Orchestration** | **LangGraph** stateful graph (not a simple chain) | Explicit, inspectable state transitions; conditional routing (grade → generate OR refuse) is impossible to express cleanly in a `LLMChain`; easy to extend with new nodes (e.g. re-retrieval, web fallback) |
 | **LLM** | **Groq** + `llama-3.1-8b-instant` | 10–20× faster inference than OpenAI API at ~1/10th the cost ($0.05/$0.08 per 1M in/out tokens); deterministic temperature=0; Llama-3 series has strong instruction-following for JSON grading |
@@ -75,7 +75,7 @@ rag-agent/
 │   └── content_processor.py  # Extract, clean, chunk → LangChain Documents
 │
 ├── vectorstore/
-│   ├── embeddings.py         # Nomic local embeddings + token/cost tracking ($0)
+│   ├── embeddings.py         # BGE local embeddings + token/cost tracking ($0)
 │   └── chroma_store.py       # ChromaDB wrapper (add, search, stats, reset)
 │
 ├── agent/
@@ -125,12 +125,12 @@ cp .env.example .env
 # NO OpenAI API key needed — embeddings run 100% locally via HuggingFace.
 ```
 
-### 3. One-time: Download the Nomic Embedding Model
+### 3. One-time: Download the Embedding Model
 
 > **⚠️ Internet access required once**
 >
 > The first time `ingest.py` or any query script runs, it will automatically download
-> `nomic-ai/nomic-embed-text-v1` (~274 MB) from HuggingFace Hub. This is cached in
+> `BAAI/bge-small-en-v1.5` (~133 MB) from HuggingFace Hub. This is cached in
 > `~/.cache/huggingface/` and all subsequent runs work **completely offline**.
 >
 > You do NOT need a HuggingFace account or API token for this model.
@@ -208,7 +208,7 @@ See [`EVAL_SUMMARY.md`](EVAL_SUMMARY.md) for full results and analysis.
 |---|---|---|
 | Pages crawled | 80 | — |
 | Chunks produced | ~640 | — |
-| Embedding model | nomic-ai/nomic-embed-text-v1 (local) | **$0.00** |
+| Embedding model | BAAI/bge-small-en-v1.5 (local) | **$0.00** |
 | Total ingestion | — | **$0.00** |
 
 > **Key design benefit:** By choosing a locally-run HuggingFace model over an API-based embedding service (e.g., OpenAI `text-embedding-3-small`), the ingestion pipeline has **zero API cost**. For 80 pages × ~8 chunks × ~200 tokens/chunk ≈ 128,000 tokens, OpenAI would charge ~$0.0026 — negligible but non-zero. The local model scales infinitely without any cost increase.
@@ -245,7 +245,7 @@ Each query invokes **three separate LLM calls** (all on Groq):
 
 3. **Single-domain crawl scope**: Limited to 80 pages of `docs.python.org/3/`. Very deep or niche topics (e.g., `ctypes` internals, the C API) may not be indexed. Re-run `ingest.py --reset` to refresh if the docs update.
 
-4. **Nomic first-run download requirement**: The first run requires ~274 MB download from HuggingFace. Subsequent runs are fully offline. Air-gapped environments must pre-cache the model manually: `huggingface-cli download nomic-ai/nomic-embed-text-v1`.
+4. **Embedding first-run download requirement**: The first run requires ~133 MB download from HuggingFace. Subsequent runs are fully offline. Air-gapped environments can pre-cache the model manually via sentence-transformers.
 
 5. **Local ChromaDB concurrency**: ChromaDB's `PersistentClient` is not safe for multi-process concurrent writes. For production with multiple workers, swap to Pinecone, Weaviate, or use ChromaDB's HTTP server mode.
 
