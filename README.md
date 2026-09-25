@@ -48,10 +48,11 @@ flowchart TD
 | **Embeddings** | `BAAI/bge-small-en-v1.5` (local SentenceTransformers) | **$0 cost** — no API key needed; 384-dim dense vectors; top-tier retrieval quality on MTEB; runs fast on CPU/GPU/MPS |
 | **Vector DB** | ChromaDB (local persistent) | Zero infrastructure; inspectable on disk; can swap to Pinecone/Weaviate for production scale without changing the interface |
 | **Orchestration** | **LangGraph** stateful graph (not a simple chain) | Explicit, inspectable state transitions; conditional routing (grade → generate OR refuse) is impossible to express cleanly in a `LLMChain`; easy to extend with new nodes (e.g. re-retrieval, web fallback) |
-| **LLM** | **Groq** + `llama-3.1-8b-instant` | 10–20× faster inference than OpenAI API at ~1/10th the cost ($0.05/$0.08 per 1M in/out tokens); deterministic temperature=0; Llama-3 series has strong instruction-following for JSON grading |
+| **LLM** | **Groq** + `openai/gpt-oss-20b` | Ultra-fast inference on Groq MoE architecture ($0.075/$0.30 per 1M in/out tokens); deterministic temperature=0; strong instruction-following for JSON grading |
 | **Query rewriting** | Dedicated LLM rewrite node | Handles paraphrased/ambiguous queries by expanding before retrieval — measurably improves recall vs. sending raw user text directly to the vector store |
 | **Document grading** | LLM-based relevance filter (not cosine threshold) | Cosine similarity thresholds are corpus-dependent and hard to tune; LLM grading understands semantic mismatch even when vectors are geometrically close (e.g. related topic, wrong answer) |
 | **Why not pure similarity threshold?** | LLM grading | A threshold of 0.8 might pass a chunk about "Python 2 list syntax" when the user asks about "Python 3 generators" — both score high semantically but the LLM catches the mismatch |
+| **Citation Tracking** | Two-tier provenance: Context Sources vs In-text Citations | The pipeline tracks all graded-relevant chunks supplied in the context window (`SOURCES` list for full auditability), while the model's generated answer cites the specific subset of sources it directly drew upon for its synthesis. |
 
 ---
 
@@ -213,33 +214,33 @@ See [`EVAL_SUMMARY.md`](EVAL_SUMMARY.md) for full results and analysis.
 
 > **Key design benefit:** By choosing a locally-run HuggingFace model over an API-based embedding service (e.g., OpenAI `text-embedding-3-small`), the ingestion pipeline has **zero API cost**. For 80 pages × ~8 chunks × ~200 tokens/chunk ≈ 128,000 tokens, OpenAI would charge ~$0.0026 — negligible but non-zero. The local model scales infinitely without any cost increase.
 
-### Per-Query (Groq, `llama-3.1-8b-instant`)
+### Per-Query (Groq, `openai/gpt-oss-20b`)
 
 Each query invokes **three separate LLM calls** (all on Groq):
 
 | Step | Prompt Tokens | Completion Tokens | Cost (est.) |
 |---|---|---|---|
-| Query rewrite | ~150 | ~50 | ~$0.000015 |
-| Document grading (6 docs × ~400 tokens) | ~2,400 | ~60 | ~$0.000125 |
-| Answer generation (~1,800 in / ~300 out) | ~1,800 | ~300 | ~$0.000114 |
-| **Total per query** | **~4,350** | **~410** | **~$0.000254** |
+| Query rewrite | ~150 | ~50 | ~$0.000026 |
+| Document grading (6 docs × ~400 tokens) | ~2,400 | ~60 | ~$0.000198 |
+| Answer generation (~1,800 in / ~300 out) | ~1,800 | ~300 | ~$0.000225 |
+| **Total per query** | **~4,350** | **~410** | **~$0.000449** |
 
 > See [`COST_ANALYSIS.md`](COST_ANALYSIS.md) for full worked example with actual token counts from the eval run.
 
-### Scale Projections (Groq, `llama-3.1-8b-instant`)
+### Scale Projections (Groq, `openai/gpt-oss-20b`)
 
 | Scale | Ingestion | Query Cost | **Total** |
 |---|---|---|---|
-| Demo (15 eval queries) | $0.00 | ~$0.004 | **~$0.004** |
-| 100 queries | $0.00 | ~$0.025 | **~$0.025** |
-| 1,000 queries | $0.00 | ~$0.254 | **~$0.254** |
-| 10,000 queries | $0.00 | ~$2.54 | **~$2.54** |
+| Demo (15 eval queries) | $0.00 | ~$0.007 | **~$0.007** |
+| 100 queries | $0.00 | ~$0.045 | **~$0.045** |
+| 1,000 queries | $0.00 | ~$0.449 | **~$0.449** |
+| 10,000 queries | $0.00 | ~$4.49 | **~$4.49** |
 
 ---
 
 ## Known Limitations
 
-1. **8b model grading reliability**: `llama-3.1-8b-instant` sometimes fails to produce valid JSON for document grading (it wraps the JSON in markdown fences or adds commentary). The grader has a fallback that defaults to `"yes"` on parse errors — this avoids crashing but may pass slightly more noisy chunks than intended.
+1. **Model grading JSON parsing**: LLMs sometimes wrap JSON in markdown code fences or add commentary. The grader has a fallback that defaults to `"yes"` on parse errors — this avoids crashing but may pass slightly more noisy chunks than intended.
 
 2. **Relevance grader precision-recall tradeoff**: The grader is intentionally permissive ("if the document contains ANY information that could help, score yes"). This maximises recall but may keep marginally relevant chunks, slightly diluting context quality. Stricter prompting improves precision at the cost of recall.
 

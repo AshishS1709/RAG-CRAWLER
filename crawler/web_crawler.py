@@ -12,6 +12,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import List, Optional, Set
+import posixpath
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -40,9 +41,10 @@ class CrawledPage:
 # ---------------------------------------------------------------------------
 
 class RobotsChecker:
-    """Cache-backed robots.txt checker."""
+    """Cache-backed robots.txt checker using requests session."""
 
-    def __init__(self, user_agent: str = "RAGCrawler/1.0"):
+    def __init__(self, session: Optional[requests.Session] = None, user_agent: str = "RAGCrawler/1.0"):
+        self.session = session or requests.Session()
         self.user_agent = user_agent
         self._cache: dict[str, RobotFileParser] = {}
 
@@ -53,19 +55,35 @@ class RobotsChecker:
             rp = RobotFileParser()
             rp.set_url(robots_url)
             try:
-                rp.read()
-            except Exception:
-                # If robots.txt is inaccessible, allow everything
-                pass
+                resp = self.session.get(robots_url, timeout=10)
+                if resp.status_code == 200:
+                    rp.parse(resp.text.splitlines())
+                    logger.info("Loaded robots.txt from %s", robots_url)
+                elif resp.status_code in (401, 403):
+                    logger.warning(
+                        "robots.txt at %s returned HTTP %s (WAF/Cloudflare); allowing crawl for public documentation",
+                        robots_url, resp.status_code
+                    )
+                    rp.allow_all = True
+                else:
+                    logger.info("robots.txt returned HTTP %s at %s; allowing crawl", resp.status_code, robots_url)
+                    rp.allow_all = True
+            except Exception as exc:
+                logger.warning("Could not fetch robots.txt at %s (%s: %s); allowing crawl", robots_url, type(exc).__name__, exc)
+                rp.allow_all = True
             self._cache[robots_url] = rp
         return self._cache[robots_url]
 
     def can_fetch(self, url: str) -> bool:
         try:
             parser = self._get_parser(url)
-            return parser.can_fetch(self.user_agent, url)
-        except Exception:
-            return True  # Allow on error
+            allowed = parser.can_fetch(self.user_agent, url)
+            if not allowed:
+                logger.warning("robots.txt disallowed: %s", url)
+            return allowed
+        except Exception as exc:
+            logger.warning("Error evaluating robots.txt for %s: %s; allowing", url, exc)
+            return True
 
 
 # ---------------------------------------------------------------------------
@@ -87,11 +105,11 @@ class WebCrawler:
     """
 
     DEFAULT_HEADERS = {
-        "Accept": "text/html,application/xhtml+xml",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    # URL path prefixes to skip for Python docs (non-content pages)
+    # URL path prefixes to skip (non-content pages and static assets)
     SKIP_PATTERNS = [
         "/_sources/",
         "/genindex",
@@ -102,8 +120,16 @@ class WebCrawler:
         "/download",
         ".zip",
         ".tar",
+        ".gz",
         ".pdf",
         ".epub",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".mp4",
+        ".mp3",
         "#",           # fragment-only
     ]
 
@@ -114,7 +140,7 @@ class WebCrawler:
         max_depth: int = 3,
         crawl_delay: float = 0.5,
         url_filter=None,
-        user_agent: str = "RAGCrawler/1.0 (assessment project)",
+        user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 (RAGCrawler/1.0)",
     ):
         self.start_url = start_url.rstrip("/")
         self.max_pages = max_pages
@@ -125,8 +151,14 @@ class WebCrawler:
 
         parsed = urlparse(start_url)
         self.base_domain = parsed.netloc
-        # Keep trailing slash so "/3/" only matches "/3/..." not "/3.12/..."
-        self.base_path_prefix = parsed.path if parsed.path.endswith("/") else parsed.path + "/"
+        path = parsed.path
+        # If start_url points to a file (e.g. index.html), use its parent directory
+        if any(path.endswith(ext) for ext in [".html", ".htm", ".xhtml", ".php", ".asp", ".aspx"]):
+            path = posixpath.dirname(path)
+        if not path or path == "/":
+            self.base_path_prefix = "/"
+        else:
+            self.base_path_prefix = path if path.endswith("/") else path + "/"
 
         self.session = requests.Session()
         self.session.headers.update({
@@ -134,7 +166,7 @@ class WebCrawler:
             "User-Agent": self.user_agent,
         })
 
-        self.robots = RobotsChecker(user_agent=self.user_agent)
+        self.robots = RobotsChecker(session=self.session, user_agent=self.user_agent)
         self.visited: Set[str] = set()
         self.pages: List[CrawledPage] = []
 
@@ -191,10 +223,18 @@ class WebCrawler:
             resp.raise_for_status()
             content_type = resp.headers.get("Content-Type", "")
             if "text/html" not in content_type:
+                logger.warning("Skipping non-HTML content-type '%s' for %s", content_type, url)
                 return None
+            # requests defaults to ISO-8859-1 when headers omit charset.
+            # Modern web docs use UTF-8; resolve via apparent_encoding or fallback to utf-8.
+            if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
+                resp.encoding = resp.apparent_encoding or "utf-8"
             return resp
         except requests.RequestException as exc:
-            logger.warning("Failed to fetch %s: %s", url, exc)
+            logger.warning("Failed to fetch %s: %s (%s)", url, type(exc).__name__, exc)
+            return None
+        except Exception as exc:
+            logger.warning("Unexpected error fetching %s: %s (%s)", url, type(exc).__name__, exc)
             return None
 
     # ------------------------------------------------------------------
@@ -215,45 +255,48 @@ class WebCrawler:
 
         while queue and len(self.pages) < self.max_pages:
             url, depth = queue.popleft()
+            try:
+                # Robots check
+                if not self.robots.can_fetch(url):
+                    logger.warning("robots.txt disallowed: %s", url)
+                    continue
 
-            # Robots check
-            if not self.robots.can_fetch(url):
-                logger.debug("robots.txt blocks: %s", url)
-                continue
+                resp = self._fetch(url)
+                if resp is None:
+                    continue
 
-            resp = self._fetch(url)
-            if resp is None:
-                continue
+                html = resp.text
+                title = self._extract_title(html)
+                resp_url = resp.url if resp.url else url
+                links = self._extract_links(resp_url, html) if depth < self.max_depth else []
 
-            html = resp.text
-            title = self._extract_title(html)
-            resp_url = resp.url if resp.url else url
-            links = self._extract_links(resp_url, html) if depth < self.max_depth else []
+                page = CrawledPage(
+                    url=url,
+                    title=title,
+                    raw_html=html,
+                    status_code=resp.status_code,
+                    depth=depth,
+                    links_found=links,
+                )
+                self.pages.append(page)
 
-            page = CrawledPage(
-                url=url,
-                title=title,
-                raw_html=html,
-                status_code=resp.status_code,
-                depth=depth,
-                links_found=links,
-            )
-            self.pages.append(page)
+                if show_progress and pbar:
+                    pbar.update(1)
+                    pbar.set_postfix({"depth": depth, "url": url[-60:]})
 
-            if show_progress and pbar:
-                pbar.update(1)
-                pbar.set_postfix({"depth": depth, "url": url[-60:]})
+                logger.info("[%d/%d] depth=%d  %s", len(self.pages), self.max_pages, depth, url)
 
-            logger.info("[%d/%d] depth=%d  %s", len(self.pages), self.max_pages, depth, url)
+                # Enqueue discovered links
+                for link in links:
+                    if link not in self.visited and len(self.visited) < self.max_pages * 3:
+                        self.visited.add(link)
+                        queue.append((link, depth + 1))
 
-            # Enqueue discovered links
-            for link in links:
-                if link not in self.visited and len(self.visited) < self.max_pages * 3:
-                    self.visited.add(link)
-                    queue.append((link, depth + 1))
-
-            # Polite delay
-            if self.crawl_delay > 0:
+                # Polite delay
+                if self.crawl_delay > 0:
+                    time.sleep(self.crawl_delay)
+            except Exception as exc:
+                logger.warning("Error processing page %s: %s (%s)", url, type(exc).__name__, exc)
                 time.sleep(self.crawl_delay)
 
         if pbar:

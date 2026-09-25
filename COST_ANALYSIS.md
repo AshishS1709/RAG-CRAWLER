@@ -49,9 +49,9 @@ Each query invokes **three LLM calls** on Groq:
 | Document grading | `top_k` (default: 6) calls, one per retrieved chunk | Most expensive step per query |
 | Answer generation | Synthesises answer from relevant chunks | Scales with chunk count and answer length |
 
-**Groq pricing for `llama-3.1-8b-instant`:**
-- Input: $0.05 / 1M tokens
-- Output: $0.08 / 1M tokens
+**Groq pricing for `openai/gpt-oss-20b`:**
+- Input: $0.075 / 1M tokens
+- Output: $0.30 / 1M tokens
 - Source: https://groq.com/pricing/
 
 The real per-query cost with actual token counts will be inserted here after the eval run.
@@ -101,6 +101,6 @@ The RAG pipeline makes separate Groq API calls at each reasoning step:
 | Optimisation | Expected Savings | Trade-off |
 |---|---|---|
 | Reduce `top_k` from 6 to 4 | ~33% on grading | Slightly lower recall |
-| Use `llama-3.1-8b-instant` vs `70b` | ~12× cheaper | Slightly lower quality |
+| Use `openai/gpt-oss-20b` vs `120b` | ~2-4× cheaper | Slightly lower quality |
 | Replace LLM grading with similarity threshold | Eliminates grading cost (~40-50%) | Higher hallucination risk |
 | Cache repeated queries | Up to 100% on hot queries | Requires Redis or equivalent |

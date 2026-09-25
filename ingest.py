@@ -53,7 +53,7 @@ def main():
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
         logger.warning("GROQ_API_KEY not set — Groq LLM will not work, but ingestion (embeddings) is still fine.")
-    # No API key needed for embeddings — Nomic model runs locally.
+    # No API key needed for embeddings — BGE model runs locally.
 
     print("\n" + "=" * 60)
     print("  RAG AGENT — INGESTION PIPELINE")

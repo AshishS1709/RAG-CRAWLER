@@ -7,15 +7,19 @@ Per-query and cumulative token + cost tracking for OpenAI models.
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-# Pricing (USD per 1M tokens, as of 2024-Q4)
+# Pricing (USD per 1M tokens, as of 2026-Q3)
 # ── Groq models (chat/generation) ──────────────────────────────────────
 MODEL_PRICING: Dict[str, Dict[str, float]] = {
-    # Groq — extremely fast inference
-    "llama-3.1-8b-instant":    {"input": 0.05,  "output": 0.08},
-    "llama-3.3-70b-versatile": {"input": 0.59,  "output": 0.79},
-    "llama-3.1-70b-versatile": {"input": 0.59,  "output": 0.79},
-    "mixtral-8x7b-32768":      {"input": 0.24,  "output": 0.24},
-    "gemma2-9b-it":            {"input": 0.20,  "output": 0.20},
+    # Groq current models
+    "openai/gpt-oss-20b":      {"input": 0.075, "output": 0.30},
+    "openai/gpt-oss-120b":     {"input": 0.150, "output": 0.60},
+    "qwen/qwen3.6-27b":        {"input": 0.200, "output": 0.60},
+    # Deprecated Groq models (retained for backward compatibility)
+    "llama-3.1-8b-instant":    {"input": 0.050, "output": 0.08},
+    "llama-3.3-70b-versatile": {"input": 0.590, "output": 0.79},
+    "llama-3.1-70b-versatile": {"input": 0.590, "output": 0.79},
+    "mixtral-8x7b-32768":      {"input": 0.240, "output": 0.24},
+    "gemma2-9b-it":            {"input": 0.200, "output": 0.20},
     # OpenAI (kept for reference if switched back)
     "gpt-4o-mini":   {"input": 0.150, "output": 0.600},
     "gpt-4o":        {"input": 5.000, "output": 15.000},
@@ -30,7 +34,7 @@ class QueryUsage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     embedding_tokens: int = 0
-    model: str = "gpt-4o-mini"
+    model: str = "openai/gpt-oss-20b"
 
     @property
     def total_llm_tokens(self) -> int:
@@ -86,7 +90,7 @@ class QueryUsage:
 class TokenTracker:
     """Accumulates usage across multiple queries for aggregate reporting."""
 
-    model: str = "gpt-4o-mini"
+    model: str = "openai/gpt-oss-20b"
     history: List[QueryUsage] = field(default_factory=list)
 
     # Ingestion (embedding-only)

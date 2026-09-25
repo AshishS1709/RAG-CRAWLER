@@ -8,7 +8,9 @@ Launch with:
 """
 
 import os
+import re
 import sys
+from urllib.parse import urlparse
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -83,16 +85,19 @@ with st.sidebar:
         type="password",
         help="Your Groq API key. Get one free at console.groq.com/keys",
     )
+    available_models = [
+        "openai/gpt-oss-20b",
+        "openai/gpt-oss-120b",
+        "qwen/qwen3.6-27b",
+        "mixtral-8x7b-32768",
+    ]
+    env_model = os.getenv("GROQ_MODEL") or os.getenv("CHAT_MODEL", "openai/gpt-oss-20b")
+    default_idx = available_models.index(env_model) if env_model in available_models else 0
     model = st.selectbox(
         "Groq Chat Model",
-        [
-            "llama-3.1-8b-instant",
-            "llama-3.3-70b-versatile",
-            "mixtral-8x7b-32768",
-            "gemma2-9b-it",
-        ],
-        index=0,
-        help="llama-3.1-8b-instant is fastest; 70b is smarter",
+        available_models,
+        index=default_idx,
+        help="openai/gpt-oss-20b is fast & efficient; 120b is higher capacity",
     )
     top_k = st.slider("Retrieved Chunks (top-k)", 3, 12, 6)
     show_rewrite = st.checkbox("Show rewritten query", value=True)
@@ -102,10 +107,48 @@ with st.sidebar:
     st.markdown("## 📚 Knowledge Base")
 
     chroma_dir = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma_db")
-    collection = os.getenv("COLLECTION_NAME", "python_docs")
 
-    if "kb_stats" not in st.session_state:
-        st.session_state.kb_stats = None
+    # Discover available collections from ChromaDB
+    def _get_collections():
+        try:
+            import chromadb
+            client = chromadb.PersistentClient(path=chroma_dir)
+            cols = client.list_collections()
+            names = [c.name if hasattr(c, "name") else str(c) for c in cols]
+            # Ensure known default names are listed
+            for fallback in ["fastapi_demo", "python_docs"]:
+                if fallback not in names:
+                    names.append(fallback)
+            return sorted(names)
+        except Exception:
+            return ["fastapi_demo", "python_docs"]
+
+    avail_cols = _get_collections()
+    # Preferred selection: session state override (e.g. after fresh ingest), then env, then first available
+    preferred = st.session_state.get("selected_collection") or os.getenv("COLLECTION_NAME", "fastapi_demo" if "fastapi_demo" in avail_cols else "python_docs")
+    if preferred not in avail_cols:
+        avail_cols.append(preferred)
+        avail_cols = sorted(avail_cols)
+    default_idx = avail_cols.index(preferred) if preferred in avail_cols else 0
+
+    collection = st.selectbox(
+        "Active Collection",
+        avail_cols,
+        index=default_idx,
+        help="Select which ChromaDB collection to query",
+    )
+
+    # Auto-load stats when collection is selected or changes
+    if "current_col" not in st.session_state or st.session_state.current_col != collection:
+        st.session_state.current_col = collection
+        try:
+            from vectorstore.chroma_store import ChromaVectorStore
+            from vectorstore.embeddings import TrackedEmbeddings
+            emb = TrackedEmbeddings(model="BAAI/bge-small-en-v1.5")
+            s = ChromaVectorStore(persist_dir=chroma_dir, collection_name=collection, embeddings=emb)
+            st.session_state.kb_stats = s.collection_stats()
+        except Exception:
+            st.session_state.kb_stats = None
 
     if st.button("🔍 Load / Refresh KB Stats"):
         try:
@@ -124,6 +167,72 @@ with st.sidebar:
           📄 <b>Chunks:</b> {st.session_state.kb_stats['document_count']:,}
         </div>
         """, unsafe_allow_html=True)
+
+    # ── Ingest a New Website Panel ─────────────────────────────────────────
+    with st.expander("🌐 Ingest a New Website", expanded=False):
+        st.markdown("<p style='font-size: 0.85em; color: #8fa3b7;'>Crawl and index any public documentation or site into a new ChromaDB collection.</p>", unsafe_allow_html=True)
+        new_url = st.text_input("Website URL", placeholder="https://docs.example.com/", key="new_ingest_url")
+        max_p = st.number_input("Max Pages (demo cap: 50)", min_value=1, max_value=50, value=20, step=5, key="new_ingest_max_pages")
+        custom_col = st.text_input("Collection Name (optional)", placeholder="auto-derived if empty", key="new_ingest_col")
+
+        if st.button("🚀 Crawl & Index", use_container_width=True, key="btn_crawl_index"):
+            target_url = new_url.strip()
+            if not target_url or not target_url.startswith(("http://", "https://")):
+                st.error("Please enter a valid URL starting with http:// or https://")
+            else:
+                # Derive safe collection name
+                if custom_col.strip():
+                    coll_name = re.sub(r"[^a-zA-Z0-9_-]", "_", custom_col.strip())
+                else:
+                    p = urlparse(target_url)
+                    host_slug = p.netloc.replace(".", "_")
+                    sub_slug = p.path.strip("/").replace("/", "_")
+                    raw_slug = f"{host_slug}_{sub_slug}" if sub_slug else host_slug
+                    coll_name = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_slug)[:35]
+
+                with st.status(f"Ingesting {target_url}...", expanded=True) as status_box:
+                    try:
+                        from crawler.web_crawler import WebCrawler
+                        from crawler.content_processor import ContentProcessor
+                        from vectorstore.chroma_store import ChromaVectorStore
+                        from vectorstore.embeddings import TrackedEmbeddings
+
+                        # 1. Crawl
+                        status_box.update(label=f"Crawling {target_url} (up to {int(max_p)} pages)...")
+                        crawler = WebCrawler(start_url=target_url, max_pages=int(max_p), max_depth=3, crawl_delay=0.3)
+                        pages = crawler.crawl(show_progress=False)
+
+                        if not pages:
+                            status_box.update(label="Crawl finished with 0 pages", state="error")
+                            st.error(f"Could not fetch any pages from `{target_url}`. The site may block crawlers or the URL may be unreachable.")
+                        else:
+                            # 2. Extract & Chunk
+                            status_box.update(label=f"Extracting content from {len(pages)} pages...")
+                            processor = ContentProcessor(chunk_size=800, chunk_overlap=150)
+                            docs = processor.process(pages)
+
+                            if not docs:
+                                status_box.update(label="0 text chunks extracted", state="error")
+                                st.error("Pages were fetched, but no readable text content could be extracted.")
+                            else:
+                                # 3. Embed & Store
+                                status_box.update(label=f"Embedding {len(docs)} chunks locally with BGE ($0)...")
+                                emb = TrackedEmbeddings(model="BAAI/bge-small-en-v1.5")
+                                store = ChromaVectorStore(persist_dir=chroma_dir, collection_name=coll_name, embeddings=emb)
+                                store.add_documents(docs, batch_size=100)
+
+                                status_box.update(label=f"✓ Indexed {len(pages)} pages ({len(docs)} chunks) into '{coll_name}'", state="complete")
+                                st.success(f"Successfully indexed into `{coll_name}`!")
+
+                                # Auto-select new collection and refresh UI
+                                st.session_state["selected_collection"] = coll_name
+                                st.session_state.current_col = coll_name
+                                st.session_state.kb_stats = store.collection_stats()
+                                st.rerun()
+
+                    except Exception as exc:
+                        status_box.update(label=f"Ingestion failed: {type(exc).__name__}", state="error")
+                        st.error(f"Ingestion error: {exc}")
 
     st.divider()
     st.markdown("## 💰 Session Stats")
@@ -169,7 +278,7 @@ def load_agent(groq_api_key: str, model: str, top_k: int, chroma_dir: str, colle
     from agent.graph import RAGAgent
     from agent.token_tracker import TokenTracker
 
-    emb = TrackedEmbeddings()  # local Nomic model, no API key
+    emb = TrackedEmbeddings()  # local BGE model, no API key
     store = ChromaVectorStore(persist_dir=chroma_dir, collection_name=collection, embeddings=emb)
     tracker = TokenTracker(model=model)
     agent = RAGAgent(

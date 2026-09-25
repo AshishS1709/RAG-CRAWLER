@@ -47,24 +47,41 @@ def _extract_with_trafilatura(html: str, url: str) -> Optional[str]:
 
 
 def _extract_with_bs4(html: str) -> str:
-    """Fallback: BeautifulSoup extraction targeting main content divs."""
+    """
+    Fallback: Generic BeautifulSoup content extraction.
+    Decomposes boilerplate tags (nav, header, footer, aside, scripts, forms)
+    and extracts from semantic content containers (main, article, [role="main"])
+    or the largest remaining text block.
+    """
     soup = BeautifulSoup(html, "lxml")
 
-    # Remove noisy elements
+    # Remove boilerplate and non-content tags
     for tag in soup.select(
-        "nav, header, footer, script, style, "
-        ".headerlink, .sphinxsidebar, #indices-and-tables, "
-        ".related, .footer, .sphinxsidebarwrapper"
+        "nav, header, footer, aside, script, style, noscript, form, svg, "
+        ".sidebar, .nav, .header, .footer, .menu, .ad, .advertisement, "
+        ".cookie-banner, .headerlink, .sphinxsidebar, #indices-and-tables, "
+        ".related, .sphinxsidebarwrapper"
     ):
         tag.decompose()
 
-    # Prefer main content containers
-    for selector in ["div.body", "main", "article", "div#content", "body"]:
+    # Priority 1: Semantic main content containers
+    for selector in ["main", "article", "[role='main']", "#main-content", "#content", ".main-content", ".content", "div.body"]:
         container = soup.select_one(selector)
         if container:
-            return container.get_text(separator="\n", strip=True)
+            text = container.get_text(separator="\n", strip=True)
+            if len(text) > 100:
+                return text
 
-    return soup.get_text(separator="\n", strip=True)
+    # Priority 2: Largest remaining text block
+    body = soup.find("body") or soup
+    candidates = body.find_all(["div", "section", "article"], recursive=False)
+    if candidates:
+        best_block = max(candidates, key=lambda el: len(el.get_text(strip=True)))
+        best_text = best_block.get_text(separator="\n", strip=True)
+        if len(best_text) > 100:
+            return best_text
+
+    return body.get_text(separator="\n", strip=True)
 
 
 # ---------------------------------------------------------------------------

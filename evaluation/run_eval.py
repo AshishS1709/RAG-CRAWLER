@@ -315,9 +315,9 @@ def main():
     if not groq_api_key:
         print("Error: GROQ_API_KEY not set")
         sys.exit(1)
-    # No API key needed for embeddings — local Nomic model
+    # No API key needed for embeddings — local BGE model
 
-    model = os.getenv("CHAT_MODEL", "llama-3.1-8b-instant")
+    model = os.getenv("GROQ_MODEL") or os.getenv("CHAT_MODEL", "openai/gpt-oss-20b")
     chroma_dir = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma_db")
     collection = os.getenv("COLLECTION_NAME", "python_docs")
     top_k = int(os.getenv("TOP_K", "6"))
@@ -329,7 +329,7 @@ def main():
     from agent.token_tracker import TokenTracker
 
     # Build agent
-    emb = TrackedEmbeddings()  # local Nomic model, no API key
+    emb = TrackedEmbeddings()  # local BGE model, no API key
     store = ChromaVectorStore(persist_dir=chroma_dir, collection_name=collection, embeddings=emb)
     tracker = TokenTracker(model=model)
     agent = RAGAgent(

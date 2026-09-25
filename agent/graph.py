@@ -84,19 +84,19 @@ class RAGAgent:
     def __init__(
         self,
         vector_store: ChromaVectorStore,
-        model: str = "llama-3.1-8b-instant",
+        model: Optional[str] = None,
         temperature: float = 0,
         top_k: int = 6,
         tracker: Optional[TokenTracker] = None,
         groq_api_key: Optional[str] = None,
     ):
         self.vector_store = vector_store
-        self.model = model
+        self.model = model or os.getenv("GROQ_MODEL") or os.getenv("CHAT_MODEL", "openai/gpt-oss-20b")
         self.top_k = top_k
-        self.tracker = tracker or TokenTracker(model=model)
+        self.tracker = tracker or TokenTracker(model=self.model)
 
         self.llm = ChatGroq(
-            model=model,
+            model=self.model,
             temperature=temperature,
             groq_api_key=groq_api_key or os.getenv("GROQ_API_KEY"),
         )

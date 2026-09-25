@@ -13,6 +13,7 @@ import argparse
 import logging
 import os
 import sys
+from typing import Optional
 
 from colorama import Fore, Style, init
 from dotenv import load_dotenv
@@ -26,13 +27,13 @@ logging.basicConfig(
 )
 
 
-def print_banner():
-    print(Fore.CYAN + Style.BRIGHT + """
+def print_banner(collection: Optional[str] = None):
+    sub = f"Collection: {collection}" if collection else "Grounded answers from knowledge base"
+    print(Fore.CYAN + Style.BRIGHT + f"""
 ╔══════════════════════════════════════════════════════╗
-║          Python Docs RAG Agent  🐍                   ║
-║   Grounded answers from docs.python.org/3/           ║
-╚══════════════════════════════════════════════════════╝
-""" + Style.RESET_ALL)
+║              Website RAG Agent 🌐                    ║
+║   {sub:<51}║
+╚══════════════════════════════════════════════════════╝""" + Style.RESET_ALL)
 
 
 def print_result(result: dict, show_usage: bool = True):
@@ -65,7 +66,7 @@ def print_result(result: dict, show_usage: bool = True):
     print()
 
 
-def build_agent():
+def build_agent(collection_name: Optional[str] = None, model: Optional[str] = None):
     """Initialise and return a RAGAgent."""
     groq_api_key = os.getenv("GROQ_API_KEY")
     if not groq_api_key:
@@ -74,8 +75,8 @@ def build_agent():
     # Embeddings run locally — no API key needed
 
     chroma_dir = os.getenv("CHROMA_PERSIST_DIR", "./data/chroma_db")
-    collection = os.getenv("COLLECTION_NAME", "python_docs")
-    model = os.getenv("CHAT_MODEL", "llama-3.1-8b-instant")
+    collection = collection_name or os.getenv("COLLECTION_NAME", "python_docs")
+    model_name = model or os.getenv("GROQ_MODEL") or os.getenv("CHAT_MODEL", "openai/gpt-oss-20b")
     top_k = int(os.getenv("TOP_K", "6"))
 
     from vectorstore.chroma_store import ChromaVectorStore
@@ -97,10 +98,10 @@ def build_agent():
         print(Fore.RED + "\nWarning: Vector store is empty! Run `python ingest.py` first." + Style.RESET_ALL)
         sys.exit(1)
 
-    tracker = TokenTracker(model=model)
+    tracker = TokenTracker(model=model_name)
     agent = RAGAgent(
         vector_store=store,
-        model=model,
+        model=model_name,
         top_k=top_k,
         tracker=tracker,
         groq_api_key=groq_api_key,
@@ -113,6 +114,10 @@ def parse_args():
     p.add_argument("question", nargs="?", help="Question to ask the agent")
     p.add_argument("--interactive", "-i", action="store_true",
                    help="Start interactive REPL mode")
+    p.add_argument("--collection", default=None,
+                   help="ChromaDB collection name (defaults to COLLECTION_NAME env or 'python_docs')")
+    p.add_argument("--model", default=None,
+                   help="Groq chat model name (defaults to GROQ_MODEL / CHAT_MODEL env or 'openai/gpt-oss-20b')")
     p.add_argument("--no-usage", action="store_true",
                    help="Hide token usage stats")
     p.add_argument("--show-graph", action="store_true",
@@ -122,9 +127,10 @@ def parse_args():
 
 def main():
     args = parse_args()
-    print_banner()
+    target_coll = args.collection or os.getenv("COLLECTION_NAME", "python_docs")
+    print_banner(collection=target_coll)
 
-    agent = build_agent()
+    agent = build_agent(collection_name=args.collection, model=args.model)
 
     if args.show_graph:
         print(Fore.CYAN + "\nLangGraph Workflow:\n" + Style.RESET_ALL)
