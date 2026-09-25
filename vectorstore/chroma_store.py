@@ -110,15 +110,29 @@ class ChromaVectorStore:
 
     def collection_stats(self) -> dict:
         """Return basic stats about the collection."""
+        domains = []
         try:
             col = self._chroma_client.get_collection(self.collection_name)
             count = col.count()
+            if count > 0:
+                sample = col.get(limit=10, include=["metadatas"])
+                found_domains = set()
+                for meta in sample.get("metadatas", []):
+                    if meta:
+                        url = meta.get("url") or meta.get("source") or ""
+                        if url.startswith("http"):
+                            from urllib.parse import urlparse
+                            netloc = urlparse(url).netloc
+                            if netloc:
+                                found_domains.add(netloc)
+                domains = sorted(list(found_domains))
         except Exception:
             count = 0
         return {
             "collection": self.collection_name,
             "persist_dir": self.persist_dir,
             "document_count": count,
+            "domains": domains,
         }
 
     def reset(self) -> None:

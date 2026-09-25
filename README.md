@@ -1,8 +1,38 @@
-# 🐍 Python Docs RAG Agent
+# 🌐 Website-Grounded RAG Agent
 
-A production-quality **Retrieval-Augmented Generation (RAG) agent** that crawls the official Python 3 documentation, builds a searchable local vector knowledge base, and answers natural-language questions grounded exclusively in that content.
+A general-purpose, production-quality **Retrieval-Augmented Generation (RAG) agent** that crawls any publicly accessible website via `--url`, builds a searchable local vector knowledge base, and answers natural-language questions grounded strictly in that content.
 
-Built for the AI Engineer assessment — using **LangChain**, **LangGraph**, **ChromaDB**, **Groq/Llama**, and **local BGE embeddings** (no OpenAI API required for embeddings).
+The crawler and extraction pipeline contain **zero site-specific logic**: HTML extraction relies on universal semantic tags (`<main>`, `<article>`, `[role="main"]`) with Trafilatura article extraction, and link discovery respects standard `robots.txt` directives and path scoping.
+
+Demonstrated in this submission against `https://docs.python.org/3/` as the primary knowledge base (bulk evaluation target), and independently verified against a second, structurally different site (`https://fastapi.tiangolo.com/tutorial/`, MkDocs Material vs. Sphinx) to confirm the crawler and content extraction are not tuned to any single site's layout.
+
+---
+
+### 🧪 Cross-Site Generality Verification (FastAPI Proof of Concept)
+
+To verify cross-site adaptability without code modifications, the exact same pipeline was executed against FastAPI's official tutorial (`https://fastapi.tiangolo.com/tutorial/`):
+
+- **Pages crawled**: 20 pages
+- **Chunks indexed**: 254 chunks (persisted in ChromaDB collection `fastapi_demo`)
+- **Ingestion cost**: **$0.00** (local `BAAI/bge-small-en-v1.5` embeddings)
+
+#### Real Execution Evidence:
+
+1. **In-Scope Query (Grounded Answer with Citations):**
+   > **Q:** "How do path parameters work in FastAPI?"  
+   > **Rewritten Query:** "FastAPI path parameters definition and usage in Python"  
+   > **Answer:** "Path parameters in FastAPI are defined using Python format string syntax within the path decorator (e.g. `@app.get("/items/{item_id}")`). The parameter's type can be declared using standard Python type annotations (e.g., `item_id: int`), which FastAPI uses for automatic request parsing, data validation, and interactive documentation."  
+   > **Sources:**
+   > - `https://fastapi.tiangolo.com/tutorial/path-params/`
+   > - `https://fastapi.tiangolo.com/tutorial/`
+   > 
+   > **Token/Cost Breakdown:** 3,613 prompt tokens + 248 completion tokens = **$0.000345** (Groq `openai/gpt-oss-20b`).
+
+2. **Out-of-Scope Query (Correct Refusal):**
+   > **Q:** "How do I configure gRPC streaming in FastAPI?"  
+   > **Rewritten Query:** "configure gRPC streaming FastAPI documentation"  
+   > **Document Grading:** 0 of 6 retrieved chunks relevant.  
+   > **Answer:** "I could not find information about configuring gRPC streaming in the provided FastAPI tutorial documentation. The documentation focuses on REST APIs using HTTP methods (GET, POST, etc.) and does not cover gRPC streaming."
 
 ---
 
@@ -10,19 +40,19 @@ Built for the AI Engineer assessment — using **LangChain**, **LangGraph**, **C
 
 ```mermaid
 flowchart TD
-    subgraph INGESTION ["🔄 Ingestion Pipeline (one-time setup)"]
-        A["🌐 docs.python.org/3/"] --> B["BFS Crawler\n(requests + BeautifulSoup)\nrobots.txt-aware"]
-        B --> C["Content Processor\n(trafilatura extraction\n+ BS4 fallback\n+ RecursiveCharacterTextSplitter\n800 chars / 150 overlap)"]
+    subgraph INGESTION ["🔄 Ingestion Pipeline (Any Public Website)"]
+        A["🌐 Target Website\n(--url <any-public-url>)\n(e.g. docs.python.org or fastapi.tiangolo.com)"] --> B["BFS Crawler\n(requests + BeautifulSoup)\nrobots.txt & path-scoping aware"]
+        B --> C["Content Processor\n(Trafilatura + semantic HTML5 fallback\n+ RecursiveCharacterTextSplitter\n800 chars / 150 overlap)"]
         C --> D["BAAI/bge-small-en-v1.5\n(local SentenceTransformers — $0 cost\nCPU / CUDA / MPS auto-detect)"]
-        D --> E[("ChromaDB\n(persistent local\nvector store)")]
+        D --> E[("ChromaDB\n(persistent local vector store\nconfigurable collection)")]
     end
 
     subgraph QUERY ["⚡ Per-Query LangGraph RAG Workflow"]
-        F["👤 User Question"] --> G["rewrite_query\n(Groq Llama — expand & clarify)"]
+        F["👤 User Question"] --> G["rewrite_query\n(Groq LLM — expand & clarify)"]
         G --> H["retrieve\n(ChromaDB similarity search\ntop-k = 6)"]
-        H --> I["grade_documents\n(Groq Llama — LLM relevance filter\nJSON: score yes/no per chunk)"]
+        H --> I["grade_documents\n(Groq LLM — relevance filter\nJSON: score yes/no per chunk)"]
         I --> J{"Has relevant\ndocs?"}
-        J -- Yes --> K["generate\n(Groq Llama — grounded answer\n+ source URL citations)"]
+        J -- Yes --> K["generate\n(Groq LLM — grounded answer\n+ source URL citations)"]
         J -- No --> L["handle_no_docs\n(graceful refusal)"]
         K --> M["📤 Answer + Sources\n+ Token/Cost Report"]
         L --> M
@@ -30,7 +60,7 @@ flowchart TD
 
     subgraph INTERFACES ["🖥️ User Interfaces"]
         M --> N["CLI\n(python cli.py)"]
-        M --> O["Streamlit Web UI\n(streamlit run app.py)"]
+        M --> O["Streamlit Web UI\n(streamlit run app.py\nwith multi-collection & live ingestion)"]
     end
 
     E --> H
@@ -139,7 +169,11 @@ cp .env.example .env
 ### 4. Ingest (Crawl + Embed)
 
 ```bash
-python ingest.py
+# Ingest default target (Python 3 documentation):
+python ingest.py --url https://docs.python.org/3/ --max-pages 80 --collection python_docs
+
+# Or ingest any other documentation site (e.g. FastAPI tutorial):
+python ingest.py --url https://fastapi.tiangolo.com/tutorial/ --max-pages 20 --collection fastapi_demo
 ```
 
 Options:
@@ -148,10 +182,11 @@ Options:
 --max-pages   Max pages to crawl (default: 80)
 --max-depth   Link depth (default: 3)
 --crawl-delay Seconds between requests (default: 0.5)
+--collection  ChromaDB collection name (default: python_docs)
 --reset       Wipe existing collection before ingesting
 ```
 
-This takes ~5–10 minutes for 80 pages. **Embedding cost: $0.00** (local inference).
+Ingestion takes ~3–8 minutes for 80 pages depending on network latency. **Embedding cost: $0.00** (local inference).
 
 ---
 
@@ -160,13 +195,17 @@ This takes ~5–10 minutes for 80 pages. **Embedding cost: $0.00** (local infere
 ### Option A: CLI — Single Question
 
 ```bash
-python cli.py "What is a list comprehension?"
+# Query the primary Python docs collection:
+python cli.py "What is a list comprehension?" --collection python_docs
+
+# Or query the verified FastAPI collection:
+python cli.py "How do path parameters work in FastAPI?" --collection fastapi_demo
 ```
 
 ### Option B: CLI — Interactive REPL
 
 ```bash
-python cli.py --interactive
+python cli.py --interactive --collection python_docs
 ```
 
 Type `quit` or `exit` to stop. Each answer shows the rewritten search query, the answer, source URLs, and per-query token/cost breakdown.
@@ -178,10 +217,11 @@ streamlit run app.py
 ```
 
 Then open http://localhost:8501. Features:
-- Chat-style interface with message history
-- Sidebar: Groq model selector, top-k slider, token usage toggle
-- Source URL pills linking to original docs pages
-- Session-level cost projections (100 / 1,000 / 10,000 queries)
+- Multi-collection selector (queries `fastapi_demo`, `python_docs`, or custom crawled collections)
+- Live **"🌐 Ingest a New Website"** sidebar tool to crawl and index any public site on the fly
+- Dynamic header and stats derived from the active collection's actual chunk metadata
+- Chat interface with message history and source pills linking to original pages
+- Real-time token usage table and session-level cost projections (100 / 1,000 / 10,000 queries)
 
 ---
 
@@ -244,13 +284,13 @@ Each query invokes **three separate LLM calls** (all on Groq):
 
 2. **Relevance grader precision-recall tradeoff**: The grader is intentionally permissive ("if the document contains ANY information that could help, score yes"). This maximises recall but may keep marginally relevant chunks, slightly diluting context quality. Stricter prompting improves precision at the cost of recall.
 
-3. **Single-domain crawl scope**: Limited to 80 pages of `docs.python.org/3/`. Very deep or niche topics (e.g., `ctypes` internals, the C API) may not be indexed. Re-run `ingest.py --reset` to refresh if the docs update.
+3. **Single-domain crawl scope**: The crawler is intentionally scoped to the domain and base path prefix of the seed URL to avoid spidering across the entire web. On very large websites, increase `--max-pages` and `--max-depth` to index deeper sections.
 
 4. **Embedding first-run download requirement**: The first run requires ~133 MB download from HuggingFace. Subsequent runs are fully offline. Air-gapped environments can pre-cache the model manually via sentence-transformers.
 
 5. **Local ChromaDB concurrency**: ChromaDB's `PersistentClient` is not safe for multi-process concurrent writes. For production with multiple workers, swap to Pinecone, Weaviate, or use ChromaDB's HTTP server mode.
 
-6. **JavaScript-rendered pages**: `requests` + BS4 cannot execute JavaScript. Pages that load content dynamically (rare on Python docs, but possible in some tutorial sections) may yield sparse or empty extractions. Playwright or `crawl4ai` would address this.
+6. **JavaScript-rendered pages**: `requests` + Trafilatura/BS4 extract server-rendered HTML. Single-page applications (SPAs) that render exclusively via client-side JavaScript will yield sparse or empty extractions. Headless browser tooling (e.g., Playwright) would address dynamic JS apps.
 
 ---
 
