@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# Environment
+.env
+
+# Vector store data (large, rebuild with ingest.py)
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Eval output — JSON excluded (large/regeneratable), MD summaries tracked
+evaluation/eval_results.json
+# Keep: evaluation/eval_results.md, evaluation/ingestion_run_log.txt (deliverables)

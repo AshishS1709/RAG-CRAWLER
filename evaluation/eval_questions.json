@@ -1,0 +1,144 @@
+{
+  "metadata": {
+    "website": "https://docs.python.org/3/",
+    "created": "2024-11",
+    "description": "Evaluation questions for the Python Docs RAG Agent. Covers: straightforward, paraphrased, multi-page, misleading, and unanswerable categories."
+  },
+  "questions": [
+    {
+      "id": "Q01",
+      "category": "straightforward",
+      "question": "What is a list comprehension in Python?",
+      "expected_answer_contains": ["list comprehension", "iterable", "condition"],
+      "expected_sources_contain": ["tutorial", "datastructures"],
+      "should_answer": true,
+      "notes": "Basic factual question — should retrieve tutorial/datastructures pages"
+    },
+    {
+      "id": "Q02",
+      "category": "straightforward",
+      "question": "What does the built-in len() function do?",
+      "expected_answer_contains": ["length", "object", "sequence"],
+      "expected_sources_contain": ["functions", "built"],
+      "should_answer": true,
+      "notes": "Should retrieve built-in functions page directly"
+    },
+    {
+      "id": "Q03",
+      "category": "straightforward",
+      "question": "How do you open a file in Python?",
+      "expected_answer_contains": ["open", "mode", "with"],
+      "expected_sources_contain": ["tutorial", "functions"],
+      "should_answer": true,
+      "notes": "Classic question — open() function, with statement"
+    },
+    {
+      "id": "Q04",
+      "category": "paraphrased",
+      "question": "How can I create a filtered list in a single line of Python code?",
+      "expected_answer_contains": ["comprehension", "for", "if"],
+      "expected_sources_contain": ["tutorial", "datastructures"],
+      "should_answer": true,
+      "notes": "Paraphrase of Q01 — tests retrieval robustness with different wording"
+    },
+    {
+      "id": "Q05",
+      "category": "paraphrased",
+      "question": "What function tells me how many elements are in a Python object?",
+      "expected_answer_contains": ["len"],
+      "expected_sources_contain": ["functions", "built"],
+      "should_answer": true,
+      "notes": "Paraphrase of Q02 — indirect phrasing of len()"
+    },
+    {
+      "id": "Q06",
+      "category": "multi_page",
+      "question": "What is the difference between __str__ and __repr__ in Python?",
+      "expected_answer_contains": ["__str__", "__repr__", "string", "representation"],
+      "expected_sources_contain": ["datamodel", "reference"],
+      "should_answer": true,
+      "notes": "Requires combining data model docs — multi-page synthesis"
+    },
+    {
+      "id": "Q07",
+      "category": "multi_page",
+      "question": "How do Python generators differ from regular functions, and when should I use them?",
+      "expected_answer_contains": ["yield", "iterator", "lazy", "memory"],
+      "expected_sources_contain": ["glossary", "tutorial", "reference"],
+      "should_answer": true,
+      "notes": "Spans glossary + tutorial + language reference — multi-page synthesis"
+    },
+    {
+      "id": "Q08",
+      "category": "multi_page",
+      "question": "How does Python's context manager protocol work, and what methods must I implement?",
+      "expected_answer_contains": ["__enter__", "__exit__", "with", "context"],
+      "expected_sources_contain": ["reference", "contextlib"],
+      "should_answer": true,
+      "notes": "Spans language reference + contextlib — multi-page"
+    },
+    {
+      "id": "Q09",
+      "category": "misleading",
+      "question": "Python uses pass-by-value for all objects, right?",
+      "expected_answer_contains": ["pass-by-object", "reference", "mutable"],
+      "expected_sources_contain": [],
+      "should_answer": true,
+      "notes": "Misleading premise — Python is pass-by-object-reference, not pass-by-value"
+    },
+    {
+      "id": "Q10",
+      "category": "misleading",
+      "question": "Since Python lists are immutable, how do I modify them?",
+      "expected_answer_contains": ["mutable", "append", "not immutable"],
+      "expected_sources_contain": [],
+      "should_answer": true,
+      "notes": "False premise — lists ARE mutable. Agent should correct this."
+    },
+    {
+      "id": "Q11",
+      "category": "unanswerable",
+      "question": "What is the best JavaScript framework for building React apps?",
+      "expected_answer_contains": ["don't have", "not", "outside"],
+      "expected_sources_contain": [],
+      "should_answer": false,
+      "notes": "Completely out of scope — JavaScript, not Python docs"
+    },
+    {
+      "id": "Q12",
+      "category": "unanswerable",
+      "question": "What is Elon Musk's net worth?",
+      "expected_answer_contains": ["don't have", "not", "information"],
+      "expected_sources_contain": [],
+      "should_answer": false,
+      "notes": "Completely unrelated to Python docs — should refuse"
+    },
+    {
+      "id": "Q13",
+      "category": "unanswerable",
+      "question": "What is the Python release date for version 4.0?",
+      "expected_answer_contains": ["don't have", "not enough", "available"],
+      "expected_sources_contain": [],
+      "should_answer": false,
+      "notes": "Python 4.0 does not exist/has no docs yet — should state insufficient info"
+    },
+    {
+      "id": "Q14",
+      "category": "straightforward",
+      "question": "What are Python decorators and how do they work?",
+      "expected_answer_contains": ["decorator", "function", "wrap", "@"],
+      "expected_sources_contain": ["glossary", "reference", "tutorial"],
+      "should_answer": true,
+      "notes": "Common Python concept — should be well-covered in docs"
+    },
+    {
+      "id": "Q15",
+      "category": "multi_page",
+      "question": "What new features were introduced in Python 3.10?",
+      "expected_answer_contains": ["match", "structural pattern matching", "3.10"],
+      "expected_sources_contain": ["whatsnew"],
+      "should_answer": true,
+      "notes": "Should retrieve 'What's New in Python 3.10' page — version-specific"
+    }
+  ]
+}
