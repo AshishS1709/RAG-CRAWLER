@@ -179,16 +179,21 @@ with st.sidebar:
 
         if st.button("🚀 Crawl & Index", use_container_width=True, key="btn_crawl_index"):
             target_url = new_url.strip()
-            if not target_url or not target_url.startswith(("http://", "https://")):
-                st.error("Please enter a valid URL starting with http:// or https://")
+            parsed_url = urlparse(target_url)
+
+            # Strict scheme and host validation (rejects file:, javascript:, data:, etc.)
+            if not target_url or parsed_url.scheme.lower() not in ("http", "https") or not parsed_url.netloc:
+                st.error("Invalid URL. Only public http:// and https:// URLs are supported (schemes like file:, javascript:, or data: are rejected).")
             else:
+                # Server-side hard cap to prevent unbounded crawls
+                safe_max_pages = min(max(1, int(max_p)), 50)
+
                 # Derive safe collection name
                 if custom_col.strip():
                     coll_name = re.sub(r"[^a-zA-Z0-9_-]", "_", custom_col.strip())
                 else:
-                    p = urlparse(target_url)
-                    host_slug = p.netloc.replace(".", "_")
-                    sub_slug = p.path.strip("/").replace("/", "_")
+                    host_slug = parsed_url.netloc.replace(".", "_")
+                    sub_slug = parsed_url.path.strip("/").replace("/", "_")
                     raw_slug = f"{host_slug}_{sub_slug}" if sub_slug else host_slug
                     coll_name = re.sub(r"[^a-zA-Z0-9_-]", "_", raw_slug)[:35]
 
@@ -200,8 +205,8 @@ with st.sidebar:
                         from vectorstore.embeddings import TrackedEmbeddings
 
                         # 1. Crawl
-                        status_box.update(label=f"Crawling {target_url} (up to {int(max_p)} pages)...")
-                        crawler = WebCrawler(start_url=target_url, max_pages=int(max_p), max_depth=3, crawl_delay=0.3)
+                        status_box.update(label=f"Crawling {target_url} (up to {safe_max_pages} pages)...")
+                        crawler = WebCrawler(start_url=target_url, max_pages=safe_max_pages, max_depth=3, crawl_delay=0.3)
                         pages = crawler.crawl(show_progress=False)
 
                         if not pages:

@@ -278,6 +278,20 @@ Each query invokes **three separate LLM calls** (all on Groq):
 
 ---
 
+## Security Considerations
+
+Given the scope of this project as a standalone prototype and assessment submission, complex enterprise guardrails and gateway subsystems were intentionally omitted. However, key attack surfaces and boundaries were evaluated:
+
+1. **Indirect Prompt Injection via Crawled Content**: Crawled website HTML is treated as untrusted data, but extracted text is passed directly into the LLM context window without active sanitization. If an indexed website contains adversarial injection payloads (e.g., instructions attempting to override the system role), the LLM reads them as context.
+   - *Current Mitigation*: The strict grounding prompt (`GENERATE_SYSTEM` in `agent/prompts.py`) constrains the model to use retrieved chunks exclusively as factual source material for answering questions, rather than executing operational instructions found within context. This limits the blast radius, but **it is a partial mitigation, not a complete defense**.
+   - *Production Requirement*: A multi-tenant production system requires a dedicated prompt-injection classifier or dual-LLM architecture where untrusted content is scrubbed before reaching the synthesis prompt.
+
+2. **Ingestion Input Validation & Crawl Constraints**: The dynamic ingest pipeline in `app.py` enforces server-side input validation:
+   - Only `http://` and `https://` schemes with valid hostnames are accepted; dangerous schemes (`file:`, `javascript:`, `data:`, `ftp:`) are strictly rejected.
+   - `max_pages` is enforced with a hard server-side clamp (`min(max(1, pages), 50)`) rather than relying solely on the UI widget, preventing accidental or malicious unbounded crawl exhaustion.
+
+---
+
 ## Known Limitations
 
 1. **Model grading JSON parsing**: LLMs sometimes wrap JSON in markdown code fences or add commentary. The grader has a fallback that defaults to `"yes"` on parse errors — this avoids crashing but may pass slightly more noisy chunks than intended.
@@ -291,6 +305,10 @@ Each query invokes **three separate LLM calls** (all on Groq):
 5. **Local ChromaDB concurrency**: ChromaDB's `PersistentClient` is not safe for multi-process concurrent writes. For production with multiple workers, swap to Pinecone, Weaviate, or use ChromaDB's HTTP server mode.
 
 6. **JavaScript-rendered pages**: `requests` + Trafilatura/BS4 extract server-rendered HTML. Single-page applications (SPAs) that render exclusively via client-side JavaScript will yield sparse or empty extractions. Headless browser tooling (e.g., Playwright) would address dynamic JS apps.
+
+7. **No API rate limiting or auth gateway**: Endpoints (CLI and Streamlit UI) have no token-bucket rate limits, user authentication, or IP throttling. Production deployments require an API gateway layer (e.g., Cloudflare, Kong, or FastAPI middleware) to prevent quota exhaustion on LLM providers.
+
+8. **No output content moderation pass**: Generated responses are not evaluated by automated safety or toxic content moderation filters prior to rendering. Production deployments should pass responses through an automated safety filter.
 
 ---
 
